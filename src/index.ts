@@ -1,11 +1,13 @@
 import express, { Request, Response } from 'express';
 import Web3 from 'web3';
 import dotenv from 'dotenv';
+import cors from "cors";
 
 dotenv.config();
 
 const app = express();
 app.use(express.json());
+app.use(cors());
 
 // Load environment variables
 const address = process.env.ADDRESS || ':8090';
