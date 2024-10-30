@@ -78,26 +78,24 @@ app.post('/fund-usdc', async (req: Request, res: Response): Promise<Response | v
 
         const contract = new web3.eth.Contract(usdcABI, usdcAddress);
 
-        // Estimate gas for the transfer transaction
-        const gasEstimate = await contract.methods.transfer(address, transferAmount).estimateGas({ from: wallet.at(0)?.address });
-
-        // Get the current gas price
+        // Estimate gas for the mint transaction
+        const mintGasEstimate = await contract.methods.mint(wallet.at(0)?.address, transferAmount).estimateGas({ from: wallet.at(0)?.address });
         const gasPrice = await web3.eth.getGasPrice();
 
-        // Create the transaction object for transfer
-        const tx = {
+        // Create and send the mint transaction
+        const mintTx = {
             from: wallet.at(0)?.address,
             to: usdcAddress,
-            gas: gasEstimate,
+            gas: mintGasEstimate,
             gasPrice: gasPrice,
-            data: contract.methods.transfer(address, transferAmount).encodeABI()
+            data: contract.methods.mint(wallet.at(0)?.address, transferAmount).encodeABI()
         };
 
-        // Sign and send the transfer transaction
-        const signedTx = await web3.eth.accounts.signTransaction(tx, privateKey);
-        const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction || '');
+        const signedMintTx = await web3.eth.accounts.signTransaction(mintTx, privateKey);
+        const mintReceipt = await web3.eth.sendSignedTransaction(signedMintTx.rawTransaction || '');
 
-        const sanitizedReceipt = JSON.parse(JSON.stringify(receipt, (_, value) =>
+
+        const sanitizedReceipt = JSON.parse(JSON.stringify(mintReceipt, (_, value) =>
             typeof value === 'bigint' ? value.toString() : value
         ));
 
@@ -176,23 +174,6 @@ async function initializeUSDC() {
     const signedConfigureMinterTx = await web3.eth.accounts.signTransaction(configureMinterTx, privateKey);
     const configureMinterReceipt = await web3.eth.sendSignedTransaction(signedConfigureMinterTx.rawTransaction || '');
     console.log('Minter configured:', configureMinterReceipt);
-
-
-    // Estimate gas for the mint transaction
-    const mintGasEstimate = await contract.methods.mint(wallet.at(0)?.address, minterAllowance).estimateGas({ from: wallet.at(0)?.address });
-
-    // Create and send the mint transaction
-    const mintTx = {
-        from: wallet.at(0)?.address,
-        to: usdcAddress,
-        gas: mintGasEstimate,
-        gasPrice: gasPrice,
-        data: contract.methods.mint(wallet.at(0)?.address, minterAllowance).encodeABI()
-    };
-
-    const signedMintTx = await web3.eth.accounts.signTransaction(mintTx, privateKey);
-    const mintReceipt = await web3.eth.sendSignedTransaction(signedMintTx.rawTransaction || '');
-    console.log('Pre-minting completed:', mintReceipt);
 }
 
 // Start the server
