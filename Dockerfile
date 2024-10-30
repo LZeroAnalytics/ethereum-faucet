@@ -13,6 +13,9 @@ COPY . .
 RUN npm install --only=dev
 RUN npx tsc
 
+# Copy the ABI file to the dist folder
+COPY src/usdc_abi.json dist/
+
 # Expose the faucet and monitoring ports
 EXPOSE 8090
 
