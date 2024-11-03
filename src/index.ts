@@ -1,4 +1,4 @@
-import express, { Request, Response } from 'express';
+import express, {Request, Response} from 'express';
 import Web3 from 'web3';
 import dotenv from 'dotenv';
 import cors from 'cors';
@@ -27,7 +27,8 @@ if (!privateKey.startsWith('0x')) {
 const wallet = web3.eth.accounts.wallet.add(web3.eth.accounts.privateKeyToAccount(privateKey));
 
 const usdcAddress = '0x43506849D7C04F9138D1A2050bbF3A0c054402dd';
-const usdcABI = JSON.parse(fs.readFileSync(__dirname + '/usdc_abi.json', 'utf-8'));
+const usdtAddress = '0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0';
+const contractABI = JSON.parse(fs.readFileSync(__dirname + '/contract_abi.json', 'utf-8'));
 
 // Endpoint to fund an address
 app.post('/fund', async (req: Request, res: Response): Promise<Response | void> => {
@@ -64,7 +65,7 @@ app.post('/fund', async (req: Request, res: Response): Promise<Response | void> 
     }
 });
 
-// Endpoint to mint USDC tokens
+// Endpoint to transfer USDC tokens
 app.post('/fund-usdc', async (req: Request, res: Response): Promise<Response | void> => {
     const { address, amount } = req.body;
 
@@ -72,66 +73,43 @@ app.post('/fund-usdc', async (req: Request, res: Response): Promise<Response | v
         return res.status(400).send('Address and amount are required');
     }
 
-    try {
-        // Convert the amount to the correct decimal format (assuming 6 decimals for USDC)
-        const transferAmount = web3.utils.toWei(amount.toString(), 'mwei'); // 'mwei' is 10^6 (6 decimals)
+    const result = await sendTokens(usdcAddress, address, amount);
+    res.status(200).json({ message: 'Transfer successful', receipt: result });
 
-        const contract = new web3.eth.Contract(usdcABI, usdcAddress);
+});
 
-        // Estimate gas for the transfer transaction
-        const gasEstimate = await contract.methods.transfer(address, transferAmount).estimateGas({ from: wallet.at(0)?.address });
+// Endpoint to transfer USDT tokens
+app.post('/fund-usdt', async (req: Request, res: Response): Promise<Response | void> => {
+    const { address, amount } = req.body;
 
-        // Get the current gas price
-        const gasPrice = await web3.eth.getGasPrice();
-
-        // Create the transaction object for transfer
-        const tx = {
-            from: wallet.at(0)?.address,
-            to: usdcAddress,
-            gas: gasEstimate,
-            gasPrice: gasPrice,
-            data: contract.methods.transfer(address, transferAmount).encodeABI()
-        };
-
-        // Sign and send the transfer transaction
-        const signedTx = await web3.eth.accounts.signTransaction(tx, privateKey);
-        const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction || '');
-
-        const sanitizedReceipt = JSON.parse(JSON.stringify(receipt, (_, value) =>
-            typeof value === 'bigint' ? value.toString() : value
-        ));
-
-        res.status(200).json({ message: 'Transfer successful', receipt: sanitizedReceipt });
-    } catch (error) {
-        console.error('Error during transfer:', error);
-        res.status(500).send('An error occurred while processing the transfer');
+    if (!address || !amount) {
+        return res.status(400).send('Address and amount are required');
     }
+
+    const result = await sendTokens(usdtAddress, address, amount);
+    res.status(200).json({ message: 'Transfer successful', receipt: result });
 });
 
 // Function to initialize USDC
-async function initializeUSDC() {
-    const contract = new web3.eth.Contract(usdcABI, usdcAddress);
+async function initializeContract(
+    initialSupply: string,
+    tokenName: string,
+    tokenSymbol: string,
+    tokenDecimals: number,
+    contractAddress: string,
+    contractAbi: any,
+) {
+    const contract = new web3.eth.Contract(contractAbi, contractAddress);
 
-    // Initialization parameters
-    const tokenName = "USDC";
-    const tokenSymbol = "USDC";
-    const tokenCurrency = "USD";
-    const tokenDecimals = 6;
-    const newMasterMinter = wallet.at(0)?.address;
-    const newPauser = wallet.at(0)?.address;
-    const newBlacklister = wallet.at(0)?.address;
-    const newOwner = wallet.at(0)?.address;
+    initialSupply = web3.utils.toWei(initialSupply, 'mwei');
 
     // Estimate gas for the transaction
     const gasEstimate = await contract.methods.initialize(
+        initialSupply,
         tokenName,
         tokenSymbol,
-        tokenCurrency,
         tokenDecimals,
-        newMasterMinter,
-        newPauser,
-        newBlacklister,
-        newOwner
+        wallet.at(0)?.address
     ).estimateGas({ from: wallet.at(0)?.address });
 
     const gasPrice = await web3.eth.getGasPrice();
@@ -139,18 +117,15 @@ async function initializeUSDC() {
     // Create the transaction
     const tx = {
         from: wallet.at(0)?.address,
-        to: usdcAddress,
+        to: contractAddress,
         gas: gasEstimate,
         gasPrice: gasPrice,
         data: contract.methods.initialize(
+            initialSupply,
             tokenName,
             tokenSymbol,
-            tokenCurrency,
             tokenDecimals,
-            newMasterMinter,
-            newPauser,
-            newBlacklister,
-            newOwner
+            wallet.at(0)?.address
         ).encodeABI()
     };
 
@@ -158,46 +133,49 @@ async function initializeUSDC() {
     const signedTx = await web3.eth.accounts.signTransaction(tx, privateKey);
     const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction || '');
 
-    console.log('USDC Contract initialized:', receipt);
+    console.log('Contract initialized:', receipt);
+}
 
-    const minterAllowance = web3.utils.toWei('1000000000000', 'mwei');
-    // Call configureMinter to set the minter allowance for the current account
-    const configureMinterGas = await contract.methods.configureMinter(wallet.at(0)?.address, minterAllowance).estimateGas({ from: wallet.at(0)?.address });
+async function sendTokens(contractAddress: string, recipient: string, amount: number) {
+    try {
+        // Convert the amount to the correct decimal format
+        const transferAmount = web3.utils.toWei(amount.toString(), 'mwei');
 
-    const configureMinterTx = {
-        from: wallet.at(0)?.address,
-        to: usdcAddress,
-        gas: configureMinterGas,
-        gasPrice: gasPrice,
-        data: contract.methods.configureMinter(wallet.at(0)?.address, minterAllowance).encodeABI()
-    };
+        const contract = new web3.eth.Contract(contractABI, contractAddress);
 
-    // Sign and send the configureMinter transaction
-    const signedConfigureMinterTx = await web3.eth.accounts.signTransaction(configureMinterTx, privateKey);
-    const configureMinterReceipt = await web3.eth.sendSignedTransaction(signedConfigureMinterTx.rawTransaction || '');
-    console.log('Minter configured:', configureMinterReceipt);
+        // Estimate gas for the transfer transaction
+        const gasEstimate = await contract.methods.transfer(recipient, transferAmount).estimateGas({ from: wallet.at(0)?.address });
 
+        // Get the current gas price
+        const gasPrice = await web3.eth.getGasPrice();
 
-    // Estimate gas for the mint transaction
-    const mintGasEstimate = await contract.methods.mint(wallet.at(0)?.address, minterAllowance).estimateGas({ from: wallet.at(0)?.address });
+        // Create the transaction object for transfer
+        const tx = {
+            from: wallet.at(0)?.address,
+            to: contractAddress,
+            gas: gasEstimate,
+            gasPrice: gasPrice,
+            data: contract.methods.transfer(recipient, transferAmount).encodeABI()
+        };
 
-    // Create and send the mint transaction
-    const mintTx = {
-        from: wallet.at(0)?.address,
-        to: usdcAddress,
-        gas: mintGasEstimate,
-        gasPrice: gasPrice,
-        data: contract.methods.mint(wallet.at(0)?.address, minterAllowance).encodeABI()
-    };
+        // Sign and send the transfer transaction
+        const signedTx = await web3.eth.accounts.signTransaction(tx, privateKey);
+        const receipt = await web3.eth.sendSignedTransaction(signedTx.rawTransaction || '');
 
-    const signedMintTx = await web3.eth.accounts.signTransaction(mintTx, privateKey);
-    const mintReceipt = await web3.eth.sendSignedTransaction(signedMintTx.rawTransaction || '');
-    console.log('Pre-minting completed:', mintReceipt);
+        return JSON.parse(JSON.stringify(receipt, (_, value) =>
+            typeof value === 'bigint' ? value.toString() : value
+        ));
+    } catch (error) {
+        console.error('Error during transfer:', error);
+        return 'An error occurred while processing the transfer';
+    }
 }
 
 // Start the server
 const port = parseInt(address.split(':')[1]);
 app.listen(port, () => {
     console.log(`Faucet server running on port ${port}`);
-    initializeUSDC();
+    initializeContract('1000000000000', 'USD Coin', 'USDC', 6, usdcAddress, contractABI).then(() => {
+        initializeContract('1000000000000', 'Tether USD', 'USDT', 6, usdtAddress, contractABI);
+    });
 });
