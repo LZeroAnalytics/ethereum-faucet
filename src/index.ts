@@ -26,8 +26,8 @@ if (!privateKey.startsWith('0x')) {
 
 const wallet = web3.eth.accounts.wallet.add(web3.eth.accounts.privateKeyToAccount(privateKey));
 
-const usdcAddress = '0x43506849D7C04F9138D1A2050bbF3A0c054402dd';
-const usdtAddress = '0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0';
+const usdcAddress = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
+const usdtAddress = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
 const contractABI = JSON.parse(fs.readFileSync(__dirname + '/contract_abi.json', 'utf-8'));
 
 // Endpoint to fund an address
@@ -175,7 +175,7 @@ async function sendTokens(contractAddress: string, recipient: string, amount: nu
 const port = parseInt(address.split(':')[1]);
 app.listen(port, () => {
     console.log(`Faucet server running on port ${port}`);
-    initializeContract('1000000000000', 'USD Coin', 'USDC', 6, usdcAddress, contractABI).then(() => {
-        initializeContract('1000000000000', 'Tether USD', 'USDT', 6, usdtAddress, contractABI);
-    });
+    //initializeContract('1000000000000', 'USD Coin', 'USDC', 6, usdcAddress, contractABI).then(() => {
+     //   initializeContract('1000000000000', 'Tether USD', 'USDT', 6, usdtAddress, contractABI);
+   // });
 });
