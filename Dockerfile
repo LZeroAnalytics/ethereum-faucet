@@ -14,7 +14,7 @@ RUN npm install --only=dev
 RUN npx tsc
 
 # Copy the ABI file to the dist folder
-COPY src/contract_abi.json dist/
+#COPY src/contract_abi.json dist/
 
 # Expose the faucet and monitoring ports
 EXPOSE 8090
