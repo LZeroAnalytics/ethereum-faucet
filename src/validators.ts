@@ -13,9 +13,16 @@ export function validateFundRequest(req: Request, res: Response, next: NextFunct
         return res.status(400).json({ error: 'Address and amount are required.' });
     }
 
-    if (!ethers.isAddress(address)) {
+    let normalizedAddress = address;
+    if (typeof address === 'string' && !address.startsWith('0x')) {
+        normalizedAddress = `0x${address}`;
+    }
+
+    if (!ethers.isAddress(normalizedAddress)) {
         return res.status(400).json({ error: 'Invalid Ethereum address.' });
     }
+
+    req.body.address = normalizedAddress;
 
     const parsedAmount = Number(amount);
     if (Number.isNaN(parsedAmount) || parsedAmount <= 0) {

@@ -98,22 +98,49 @@ app.post('/fund', fundLimiter, validateFundRequest, async (req: Request, res: Re
     try {
         const { address, amount } = req.body;
 
+        logger.info(`Processing native transfer to ${address} for ${amount}`);
+
         // Ethers parse
         const tx = await managedSigner.sendTransaction({
             to: address,
             value: ethers.parseEther(amount.toString()),
+        }).catch((error: Error) => {
+            logger.error(`Transaction creation failed: ${error.message}`);
+            throw error;
         });
 
-        const receipt = await tx.wait();
+        logger.info(`Transaction sent, waiting for confirmation. Hash: ${tx.hash}`);
 
-        logger.info(`Native transfer successful. Hash: ${receipt?.hash}`);
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Transaction confirmation timeout')), 30000);
+        });
+
+        const receipt = await Promise.race([
+            tx.wait(),
+            timeoutPromise
+        ]).catch((error: Error) => {
+            logger.error(`Transaction confirmation failed: ${error.message}`);
+            throw error;
+        });
+
+        const txHash = receipt ? receipt.hash : tx.hash;
+        logger.info(`Native transfer successful. Hash: ${txHash}`);
 
         res.status(200).json({
             message: 'Native transfer successful',
-            txHash: receipt?.hash,
+            txHash: txHash,
         });
     } catch (error) {
-        next(error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error(`Native transfer failed: ${errorMessage}`);
+        
+        if (!res.headersSent) {
+            res.status(500).json({
+                error: `Transaction failed: ${errorMessage}`,
+            });
+        } else {
+            logger.error('Error occurred after response was sent');
+        }
     }
 });
 
@@ -126,22 +153,50 @@ app.post('/fund-usdc', fundLimiter, validateFundRequest, async (req: Request, re
     try {
         const { address, amount } = req.body;
 
+        logger.info(`Processing USDC transfer to ${address} for ${amount}`);
+
         const tokenContract = new ethers.Contract(USDC_ADDRESS, erc20Abi, managedSigner);
 
         // USDC => 6 decimals
         const tokenAmount = ethers.parseUnits(amount.toString(), 6);
 
-        const tx = await tokenContract.transfer(address, tokenAmount);
-        const receipt = await tx.wait();
+        const tx = await tokenContract.transfer(address, tokenAmount).catch((error: Error) => {
+            logger.error(`USDC transaction creation failed: ${error.message}`);
+            throw error;
+        });
 
-        logger.info(`USDC transfer successful. Hash: ${receipt?.hash}`);
+        logger.info(`USDC transaction sent, waiting for confirmation. Hash: ${tx.hash}`);
+
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Transaction confirmation timeout')), 30000);
+        });
+
+        const receipt = await Promise.race([
+            tx.wait(),
+            timeoutPromise
+        ]).catch((error: Error) => {
+            logger.error(`USDC transaction confirmation failed: ${error.message}`);
+            throw error;
+        });
+
+        const txHash = receipt ? receipt.hash : tx.hash;
+        logger.info(`USDC transfer successful. Hash: ${txHash}`);
 
         res.status(200).json({
             message: 'USDC transfer successful',
-            txHash: receipt?.hash,
+            txHash: txHash,
         });
     } catch (error) {
-        next(error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error(`USDC transfer failed: ${errorMessage}`);
+        
+        if (!res.headersSent) {
+            res.status(500).json({
+                error: `USDC transaction failed: ${errorMessage}`,
+            });
+        } else {
+            logger.error('Error occurred after response was sent');
+        }
     }
 });
 
@@ -154,22 +209,50 @@ app.post('/fund-usdt', fundLimiter, validateFundRequest, async (req: Request, re
     try {
         const { address, amount } = req.body;
 
+        logger.info(`Processing USDT transfer to ${address} for ${amount}`);
+
         const tokenContract = new ethers.Contract(USDT_ADDRESS, erc20Abi, managedSigner);
 
         // USDT => 6 decimals
         const tokenAmount = ethers.parseUnits(amount.toString(), 6);
 
-        const tx = await tokenContract.transfer(address, tokenAmount);
-        const receipt = await tx.wait();
+        const tx = await tokenContract.transfer(address, tokenAmount).catch((error: Error) => {
+            logger.error(`USDT transaction creation failed: ${error.message}`);
+            throw error;
+        });
 
-        logger.info(`USDT transfer successful. Hash: ${receipt?.hash}`);
+        logger.info(`USDT transaction sent, waiting for confirmation. Hash: ${tx.hash}`);
+
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('Transaction confirmation timeout')), 30000);
+        });
+
+        const receipt = await Promise.race([
+            tx.wait(),
+            timeoutPromise
+        ]).catch((error: Error) => {
+            logger.error(`USDT transaction confirmation failed: ${error.message}`);
+            throw error;
+        });
+
+        const txHash = receipt ? receipt.hash : tx.hash;
+        logger.info(`USDT transfer successful. Hash: ${txHash}`);
 
         res.status(200).json({
             message: 'USDT transfer successful',
-            txHash: receipt?.hash,
+            txHash: txHash,
         });
     } catch (error) {
-        next(error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error(`USDT transfer failed: ${errorMessage}`);
+        
+        if (!res.headersSent) {
+            res.status(500).json({
+                error: `USDT transaction failed: ${errorMessage}`,
+            });
+        } else {
+            logger.error('Error occurred after response was sent');
+        }
     }
 });
 
@@ -177,10 +260,30 @@ app.post('/fund-usdt', fundLimiter, validateFundRequest, async (req: Request, re
 // 6) Centralized Error Handling
 // -----------------------------------------------------------------------------
 app.use((error: any, req: Request, res: Response, _next: NextFunction) => {
-    logger.error('Unhandled error:', { error });
-    res.status(500).json({
-        error: error?.message || 'Unknown server error',
+    const errorMessage = error?.message || 'Unknown server error';
+    const errorStack = error?.stack || '';
+    const errorCode = error?.code || '';
+    const errorName = error?.name || '';
+    
+    logger.error('Unhandled error:', { 
+        message: errorMessage,
+        name: errorName,
+        code: errorCode,
+        path: req.path,
+        method: req.method,
+        body: req.body,
+        stack: errorStack
     });
+    
+    if (!res.headersSent) {
+        res.status(500).json({
+            error: errorMessage,
+            code: errorCode || undefined,
+            path: req.path
+        });
+    } else {
+        logger.error('Error occurred after response was sent');
+    }
 });
 
 // -----------------------------------------------------------------------------
