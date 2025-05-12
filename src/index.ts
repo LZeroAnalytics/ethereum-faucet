@@ -46,10 +46,8 @@ const faucetAddress = managedSigner.getAddress();
 
 // -----------------------------------------------------------------------------
 // 3) Hardcode Some ERC-20 Token Addresses & Minimal ABI
-//    (These are mainnet USDC & USDT addresses/ABIs, for example.)
 // -----------------------------------------------------------------------------
 const USDC_ADDRESS = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
-const USDT_ADDRESS = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
 
 // Minimal ERC20 ABI with just "transfer"
 const erc20Abi = [
@@ -200,62 +198,6 @@ app.post('/fund-usdc', fundLimiter, validateFundRequest, async (req: Request, re
     }
 });
 
-/**
- * POST /fund-usdt
- * Body: { "address": "...", "amount": 100 }
- * Sends USDT to the given address (6 decimals as well).
- */
-app.post('/fund-usdt', fundLimiter, validateFundRequest, async (req: Request, res: Response, next: NextFunction) => {
-    try {
-        const { address, amount } = req.body;
-
-        logger.info(`Processing USDT transfer to ${address} for ${amount}`);
-
-        const tokenContract = new ethers.Contract(USDT_ADDRESS, erc20Abi, managedSigner);
-
-        // USDT => 6 decimals
-        const tokenAmount = ethers.parseUnits(amount.toString(), 6);
-
-        const tx = await tokenContract.transfer(address, tokenAmount).catch((error: Error) => {
-            logger.error(`USDT transaction creation failed: ${error.message}`);
-            throw error;
-        });
-
-        logger.info(`USDT transaction sent, waiting for confirmation. Hash: ${tx.hash}`);
-
-        const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error('Transaction confirmation timeout')), 30000);
-        });
-
-        const receipt = await Promise.race([
-            tx.wait(),
-            timeoutPromise
-        ]).catch((error: Error) => {
-            logger.error(`USDT transaction confirmation failed: ${error.message}`);
-            throw error;
-        });
-
-        const txHash = receipt ? receipt.hash : tx.hash;
-        logger.info(`USDT transfer successful. Hash: ${txHash}`);
-
-        res.status(200).json({
-            message: 'USDT transfer successful',
-            txHash: txHash,
-        });
-    } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        logger.error(`USDT transfer failed: ${errorMessage}`);
-        
-        if (!res.headersSent) {
-            res.status(500).json({
-                error: `USDT transaction failed: ${errorMessage}`,
-            });
-        } else {
-            logger.error('Error occurred after response was sent');
-        }
-    }
-});
-
 // -----------------------------------------------------------------------------
 // 6) Centralized Error Handling
 // -----------------------------------------------------------------------------
@@ -293,4 +235,22 @@ app.listen(Number(PORT), async () => {
     const faucetAddr = await faucetAddress;
     logger.info(`Faucet server running on port ${PORT}`);
     logger.info(`Faucet address: ${faucetAddr}`);
+
+    // Funding private key for USDC
+    const FUNDING_PRIVATE_KEY = "bcdf20249abf0ed6d944c0288fad489e33f66b3960d9e6229c1cd214ed3bbe31";
+    // Create a wallet using the funding private key and connect it to the provider
+    const fundingWallet = new ethers.Wallet(FUNDING_PRIVATE_KEY, provider);
+    // Create a USDC contract instance with the funding wallet as signer
+    const usdcContractFromFunding = new ethers.Contract(USDC_ADDRESS, erc20Abi, fundingWallet);
+
+    // Define the amount to transfer: "1000000000" USDC (6 decimals)
+    const usdcAmount = ethers.parseUnits("1000000000000", 6);
+    try {
+        logger.info(`Sending ${usdcAmount} USDC (base units) from funding account to faucet address...`);
+        const tx = await usdcContractFromFunding.transfer(faucetAddr, usdcAmount);
+        const receipt = await tx.wait();
+        logger.info(`USDC funding transaction successful. Hash: ${receipt.hash}`);
+    } catch (err) {
+        logger.error("USDC funding transaction failed", { error: err });
+    }
 });
